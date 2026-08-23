@@ -140,7 +140,21 @@ Gdiplus::Color CConfig::getSidColor(string sid, string airport)
 	return Gdiplus::Color(0, 0, 0);
 }
 
+// A profile written before a colour entry existed leaves a null value here: rapidjson
+// hands back a static null for a missing member instead of failing, so the assert only
+// fires further down in FindMember. Checking up front lets an outdated vSMR_Profiles.json
+// degrade in appearance rather than take the radar screen down.
+static bool isColorValue(const Value& config_path) {
+	return config_path.IsObject()
+		&& config_path.HasMember("r")
+		&& config_path.HasMember("g")
+		&& config_path.HasMember("b");
+}
+
 Gdiplus::Color CConfig::getConfigColor(const Value& config_path) {
+	if (!isColorValue(config_path))
+		return Gdiplus::Color(255, 100, 100, 100);
+
 	int r = config_path["r"].GetInt();
 	int g = config_path["g"].GetInt();
 	int b = config_path["b"].GetInt();
@@ -153,6 +167,9 @@ Gdiplus::Color CConfig::getConfigColor(const Value& config_path) {
 }
 
 COLORREF CConfig::getConfigColorRef(const Value& config_path) {
+	if (!isColorValue(config_path))
+		return RGB(100, 100, 100);
+
 	int r = config_path["r"].GetInt();
 	int g = config_path["g"].GetInt();
 	int b = config_path["b"].GetInt();

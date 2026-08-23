@@ -1126,11 +1126,14 @@ void CSMRRadar::OnRadarTargetPositionUpdate(CRadarTarget RadarTarget)
 
 	CRadarTargetPositionData RtPos = RadarTarget.GetPosition();
 
-	Patatoides[RadarTarget.GetCallsign()].History_three_points = Patatoides[RadarTarget.GetCallsign()].History_two_points;
-	Patatoides[RadarTarget.GetCallsign()].History_two_points = Patatoides[RadarTarget.GetCallsign()].History_one_points;
-	Patatoides[RadarTarget.GetCallsign()].History_one_points = Patatoides[RadarTarget.GetCallsign()].points;
+	// Keyed by callsign text: the const char* ES returns is not guaranteed to keep
+	// the same address between calls, so resolve the entry once and reuse it.
+	Patatoide_Points& acPatatoide = Patatoides[RadarTarget.GetCallsign()];
+	acPatatoide.History_three_points = acPatatoide.History_two_points;
+	acPatatoide.History_two_points = acPatatoide.History_one_points;
+	acPatatoide.History_one_points = acPatatoide.points;
 
-	Patatoides[RadarTarget.GetCallsign()].points.clear();
+	acPatatoide.points.clear();
 
 	CFlightPlan fp = GetPlugIn()->FlightPlanSelect(RadarTarget.GetCallsign());
 
@@ -1228,14 +1231,14 @@ void CSMRRadar::OnRadarTargetPositionUpdate(CRadarTarget RadarTarget)
 		double dist, rndHeading;
 		dist = startPoint.DistanceTo(endPoint);
 
-		Patatoides[RadarTarget.GetCallsign()].points[i * 7] = { startPoint.m_Latitude, startPoint.m_Longitude };
+		acPatatoide.points[i * 7] = { startPoint.m_Latitude, startPoint.m_Longitude };
 		lastPoint = startPoint;
 
 		for (int k = 1; k < 7; k++){
 
 			rndHeading = float(fmod(lastPoint.DirectionTo(endPoint) + (-25.0 + (rand() % 50 + 1)), 360));
 			newPoint = Haversine(lastPoint, rndHeading, dist * 200);
-			Patatoides[RadarTarget.GetCallsign()].points[(i * 7) + k] = { newPoint.m_Latitude, newPoint.m_Longitude };
+			acPatatoide.points[(i * 7) + k] = { newPoint.m_Latitude, newPoint.m_Longitude };
 			lastPoint = newPoint;
 		}
 	}
@@ -2082,6 +2085,9 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 		CRadarTargetPositionData RtPos = rt.GetPosition();
 
+		// Same lookup as above, resolved once per target for the polygons below.
+		Patatoide_Points& acPatatoide = Patatoides[rt.GetCallsign()];
+
 		POINT acPosPix = ConvertCoordFromPositionToPixel(RtPos.GetPosition());
 
 		if (rt.GetGS() > 5) {
@@ -2093,54 +2099,54 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 				pAcPos = rt.GetPreviousPosition(pAcPos);
 				acPosPix = ConvertCoordFromPositionToPixel(pAcPos.GetPosition());
 
-				if (i == 1 && !Patatoides[rt.GetCallsign()].History_one_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
+				if (i == 1 && !acPatatoide.History_one_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
 					SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 						CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_one_color"])));
 
 					PointF lpPoints[100];
-					for (unsigned int i1 = 0; i1 < Patatoides[rt.GetCallsign()].History_one_points.size(); i1++)
+					for (unsigned int i1 = 0; i1 < acPatatoide.History_one_points.size(); i1++)
 					{
 						CPosition pos;
-						pos.m_Latitude = Patatoides[rt.GetCallsign()].History_one_points[i1].x;
-						pos.m_Longitude = Patatoides[rt.GetCallsign()].History_one_points[i1].y;
+						pos.m_Latitude = acPatatoide.History_one_points[i1].x;
+						pos.m_Longitude = acPatatoide.History_one_points[i1].y;
 
 						lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 					}
-					graphics.FillPolygon(&H_Brush, lpPoints, Patatoides[rt.GetCallsign()].History_one_points.size());
+					graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_one_points.size());
 				}
 
 				if (i != 2) {
-					if (!Patatoides[rt.GetCallsign()].History_two_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
+					if (!acPatatoide.History_two_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
 						SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 							CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_two_color"])));
 
 						PointF lpPoints[100];
-						for (unsigned int i1 = 0; i1 < Patatoides[rt.GetCallsign()].History_two_points.size(); i1++)
+						for (unsigned int i1 = 0; i1 < acPatatoide.History_two_points.size(); i1++)
 						{
 							CPosition pos;
-							pos.m_Latitude = Patatoides[rt.GetCallsign()].History_two_points[i1].x;
-							pos.m_Longitude = Patatoides[rt.GetCallsign()].History_two_points[i1].y;
+							pos.m_Latitude = acPatatoide.History_two_points[i1].x;
+							pos.m_Longitude = acPatatoide.History_two_points[i1].y;
 
 							lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 						}
-						graphics.FillPolygon(&H_Brush, lpPoints, Patatoides[rt.GetCallsign()].History_two_points.size());
+						graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_two_points.size());
 					}
 				}
 
-				if (i == 2 && !Patatoides[rt.GetCallsign()].History_three_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
+				if (i == 2 && !acPatatoide.History_three_points.empty() && Afterglow && CurrentConfig->getActiveProfile()["targets"]["show_primary_target"].GetBool()) {
 					SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 						CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_three_color"])));
 
 					PointF lpPoints[100];
-					for (unsigned int i1 = 0; i1 < Patatoides[rt.GetCallsign()].History_three_points.size(); i1++)
+					for (unsigned int i1 = 0; i1 < acPatatoide.History_three_points.size(); i1++)
 					{
 						CPosition pos;
-						pos.m_Latitude = Patatoides[rt.GetCallsign()].History_three_points[i1].x;
-						pos.m_Longitude = Patatoides[rt.GetCallsign()].History_three_points[i1].y;
+						pos.m_Latitude = acPatatoide.History_three_points[i1].x;
+						pos.m_Longitude = acPatatoide.History_three_points[i1].y;
 
 						lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 					}
-					graphics.FillPolygon(&H_Brush, lpPoints, Patatoides[rt.GetCallsign()].History_three_points.size());
+					graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_three_points.size());
 				}
 			}
 
@@ -2166,16 +2172,16 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 				CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["target_color"])));
 
 			PointF lpPoints[100];
-			for (unsigned int i = 0; i < Patatoides[rt.GetCallsign()].points.size(); i++)
+			for (unsigned int i = 0; i < acPatatoide.points.size(); i++)
 			{
 				CPosition pos;
-				pos.m_Latitude = Patatoides[rt.GetCallsign()].points[i].x;
-				pos.m_Longitude = Patatoides[rt.GetCallsign()].points[i].y;
+				pos.m_Latitude = acPatatoide.points[i].x;
+				pos.m_Longitude = acPatatoide.points[i].y;
 
 				lpPoints[i] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 			}
 
-			graphics.FillPolygon(&H_Brush, lpPoints, Patatoides[rt.GetCallsign()].points.size());
+			graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.points.size());
 		}
 		acPosPix = ConvertCoordFromPositionToPixel(RtPos.GetPosition());
 

@@ -161,6 +161,27 @@
         }
     },
     "rimcas": {
+        "caution_alert_background_color": {
+            "r": 255,
+            "g": 255,
+            "b": 0
+        },
+        "caution_alert_text_color": {
+            "r": 0,
+            "g": 0,
+            "b": 0
+        },
+        "warning_alert_background_color": {
+            "r": 255,
+            "g": 0,
+            "b": 0
+        },
+        "warning_alert_text_color": {
+            "r": 255,
+            "g": 255,
+            "b": 255
+        },
+        "inactive_alerts": [],
         "rimcas_label_only": true,
         "use_red_symbol_for_emergencies": true,
         "timer": [60, 45, 30, 15, 0],
@@ -211,7 +232,29 @@
             "a": 255
         }
     },
+    "lists": {
+        "background_color": {
+            "r": 50,
+            "g": 50,
+            "b": 50
+        }
+    },
     "approach_insets": {
+        "frame_color": {
+            "r": 127,
+            "g": 122,
+            "b": 122
+        },
+        "header_text_color": {
+            "r": 35,
+            "g": 35,
+            "b": 35
+        },
+        "button_color": {
+            "r": 60,
+            "g": 60,
+            "b": 60
+        },
         "extended_lines_length": 15,
         "extended_lines_ticks_spacing": 1,
         "extended_lines_color": {
