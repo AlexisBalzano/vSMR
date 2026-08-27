@@ -41,6 +41,11 @@ namespace SMRPluginSharedData
 
 using namespace SMRSharedData;
 
+// Restores the EuroScope window procedure that CSMRRadar::OnRefresh subclasses on first
+// draw. The subclass state is global rather than per screen, so this takes no instance
+// and is safe to call whether or not any radar screen is still open.
+void RestoreEuroscopeWindowProc();
+
 class CSMRRadar :
 	public EuroScopePlugIn::CRadarScreen
 {
@@ -69,11 +74,15 @@ public:
 		double y;
 	} POINT2;
 
+	// Dense, ordered vertex lists. These were map<int, POINT2> keyed by a contiguous
+	// 0..N-1 index, which bought nothing and made every read a potential write: reading
+	// a missing key through operator[] inserts it, growing size() while a loop bounded
+	// by size() is still running.
 	struct Patatoide_Points {
-		map<int, POINT2> points;
-		map<int, POINT2> History_one_points;
-		map<int, POINT2> History_two_points;
-		map<int, POINT2> History_three_points;
+		vector<POINT2> points;
+		vector<POINT2> History_one_points;
+		vector<POINT2> History_two_points;
+		vector<POINT2> History_three_points;
 	};
 
 	map<string, Patatoide_Points> Patatoides;
@@ -436,8 +445,6 @@ public:
 	virtual void OnFunctionCall(int FunctionId, const char * sItemString, POINT Pt, RECT Area);
 
 	//---OnAsrContentToBeClosed-----------------------------------------
-
-	void CSMRRadar::EuroScopePlugInExitCustom();
 
 	//  This gets called before OnAsrContentToBeSaved()
 	// -> we can't delete CurrentConfig just yet otherwise we can't save the active profile
