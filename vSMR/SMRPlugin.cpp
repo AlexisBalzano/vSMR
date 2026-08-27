@@ -64,8 +64,6 @@ bool startThreadvStrips = true;
 using namespace SMRPluginSharedData;
 char recv_buf[1024];
 
-vector<CSMRRadar*> RadarScreensOpened;
-
 void datalinkLogin(void * arg) {
 	string raw;
 	string url = baseUrlDatalink;
@@ -648,9 +646,7 @@ CRadarScreen * CSMRPlugin::OnRadarScreenCreated(const char * sDisplayName, bool 
 {
 	Logger::info(string(__FUNCSIG__));
 	if (!strcmp(sDisplayName, MY_PLUGIN_VIEW_AVISO)) {
-		CSMRRadar* rd = new CSMRRadar();
-		RadarScreensOpened.push_back(rd);
-		return rd;
+		return new CSMRRadar();
 	}
 
 	return NULL;
@@ -660,8 +656,8 @@ CRadarScreen * CSMRPlugin::OnRadarScreenCreated(const char * sDisplayName, bool 
 
 void __declspec (dllexport) EuroScopePlugInExit(void)
 {
-	for each (auto var in RadarScreensOpened)
-	{
-		var->EuroScopePlugInExitCustom();
-	}
+	// A CSMRRadar deletes itself in OnAsrContentToBeClosed, so a registry of screen
+	// pointers is full of dangling entries by the time we are called. Nothing here needs
+	// an instance: the window subclass this has to undo is global state.
+	RestoreEuroscopeWindowProc();
 }

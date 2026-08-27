@@ -238,7 +238,7 @@ void CApproachWindow::render(HDC hDC, CSMRRadar * radar_screen, Graphics* gdi, P
 				}
 			} 
 
-			dc.SelectObject(&oldPen);
+			dc.SelectObject(oldPen);
 		}
 	}
 

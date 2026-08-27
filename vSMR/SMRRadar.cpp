@@ -19,6 +19,24 @@ WNDPROC gSourceProc;
 HWND pluginWindow;
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+// The subclass OnRefresh installs on first draw lives entirely in the globals above, not
+// in any CSMRRadar. Restoring it therefore needs no instance, which is what previously
+// drove the exit path to walk a list of already deleted screens to find one.
+void RestoreEuroscopeWindowProc()
+{
+	AFX_MANAGE_STATE(AfxGetStaticModuleState())
+
+	// Never subclassed, or already restored. The old guard tested smrCursor, which is
+	// reassigned all over the cursor handling and says nothing about the window proc.
+	if (gSourceProc == nullptr || pluginWindow == nullptr)
+		return;
+
+	SetWindowLong(pluginWindow, GWL_WNDPROC, (LONG)gSourceProc);
+	gSourceProc = nullptr;
+	pluginWindow = nullptr;
+	initCursor = true; // Let a later screen subclass again
+}
+
 map<string, string> CSMRRadar::vStripsStands;
 
 map<int, CInsetWindow *> appWindows;
@@ -37,6 +55,20 @@ bool mouseWithin(CRect rect) {
 	if (mouseLocation.x >= rect.left + 1 && mouseLocation.x <= rect.right - 1 && mouseLocation.y >= rect.top + 1 && mouseLocation.y <= rect.bottom - 1)
 		return true;
 	return false;
+}
+
+// Capacity of the stack arrays the afterglow polygons are drawn from.
+// OnRadarTargetPositionUpdate lays down 12 base points x 7 interpolated steps = 84, but
+// nothing enforced that against the arrays, so every draw loop clamps to this.
+static const size_t MAX_PATATOIDE_POINTS = 100;
+
+// LR_SHARED hands back a handle the system owns and caches per resource, so it must
+// not be destroyed - and it never needed CopyCursor, which minted a fresh USER object
+// on every hover transition that nothing ever released. Enough of those and the whole
+// process runs out of USER handles.
+inline HCURSOR loadSharedCursor(int resourceId)
+{
+	return (HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(resourceId), IMAGE_CURSOR, 0, 0, LR_SHARED);
 }
 
 // ReSharper disable CppMsExtAddressOfClassRValue
@@ -125,7 +157,8 @@ CSMRRadar::~CSMRRadar()
 	Logger::info(string(__FUNCSIG__));
 	try {
 		//this->OnAsrContentToBeSaved();
-		//this->EuroScopePlugInExitCustom();
+		// The window subclass is undone once from EuroScopePlugInExit via
+		// RestoreEuroscopeWindowProc, not per screen.
 	}
 	catch (exception &e) {
 		stringstream s;
@@ -142,7 +175,7 @@ void CSMRRadar::CorrelateCursor() {
 	{
 		if (standardCursor)
 		{
-			smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCORRELATE), IMAGE_CURSOR, 0, 0, LR_SHARED));
+			smrCursor = loadSharedCursor(IDC_SMRCORRELATE);
 
 			AFX_MANAGE_STATE(AfxGetStaticModuleState());
 			ASSERT(smrCursor);
@@ -155,7 +188,7 @@ void CSMRRadar::CorrelateCursor() {
 		if (!standardCursor)
 		{
 			if (customCursor) {
-				smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCURSOR), IMAGE_CURSOR, 0, 0, LR_SHARED));
+				smrCursor = loadSharedCursor(IDC_SMRCURSOR);
 			}
 			else {
 				smrCursor = (HCURSOR)::LoadCursor(NULL, IDC_ARROW);
@@ -381,9 +414,9 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 			if (standardCursor)
 			{
 				if (strcmp(sObjectId, "topbar") == 0)
-					smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRMOVEWINDOW), IMAGE_CURSOR, 0, 0, LR_SHARED));
+					smrCursor = loadSharedCursor(IDC_SMRMOVEWINDOW);
 				else if (strcmp(sObjectId, "resize") == 0)
-					smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRRESIZE), IMAGE_CURSOR, 0, 0, LR_SHARED));
+					smrCursor = loadSharedCursor(IDC_SMRRESIZE);
 
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 				ASSERT(smrCursor);
@@ -395,7 +428,7 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 			if (!standardCursor)
 			{
 				if (customCursor) {
-					smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCURSOR), IMAGE_CURSOR, 0, 0, LR_SHARED));
+					smrCursor = loadSharedCursor(IDC_SMRCURSOR);
 				}
 				else {
 					smrCursor = (HCURSOR)::LoadCursor(NULL, IDC_ARROW);
@@ -416,7 +449,7 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 		{
 			if (standardCursor)
 			{
-				smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRMOVETAG), IMAGE_CURSOR, 0, 0, LR_SHARED));
+				smrCursor = loadSharedCursor(IDC_SMRMOVETAG);
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 				ASSERT(smrCursor);
 				SetCursor(smrCursor);
@@ -428,7 +461,7 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 			if (!standardCursor)
 			{
 				if (customCursor) {
-					smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCURSOR), IMAGE_CURSOR, 0, 0, LR_SHARED));
+					smrCursor = loadSharedCursor(IDC_SMRCURSOR);
 				}
 				else {
 					smrCursor = (HCURSOR)::LoadCursor(NULL, IDC_ARROW);
@@ -504,7 +537,7 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 		{
 			if (standardCursor)
 			{
-				smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRMOVEWINDOW), IMAGE_CURSOR, 0, 0, LR_SHARED));
+				smrCursor = loadSharedCursor(IDC_SMRMOVEWINDOW);
 
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 				ASSERT(smrCursor);
@@ -517,7 +550,7 @@ void CSMRRadar::OnMoveScreenObject(int ObjectType, const char * sObjectId, POINT
 			if (!standardCursor)
 			{
 				if (customCursor) {
-					smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCURSOR), IMAGE_CURSOR, 0, 0, LR_SHARED));					
+					smrCursor = loadSharedCursor(IDC_SMRCURSOR);					
 				}
 				else {
 					smrCursor = (HCURSOR)::LoadCursor(NULL, IDC_ARROW);
@@ -1231,14 +1264,16 @@ void CSMRRadar::OnRadarTargetPositionUpdate(CRadarTarget RadarTarget)
 		double dist, rndHeading;
 		dist = startPoint.DistanceTo(endPoint);
 
-		acPatatoide.points[i * 7] = { startPoint.m_Latitude, startPoint.m_Longitude };
+		// Appended in the same order the old index arithmetic produced: i*7, then
+		// i*7+1 .. i*7+6, so vertex n still lands at position n.
+		acPatatoide.points.push_back({ startPoint.m_Latitude, startPoint.m_Longitude });
 		lastPoint = startPoint;
 
 		for (int k = 1; k < 7; k++){
 
 			rndHeading = float(fmod(lastPoint.DirectionTo(endPoint) + (-25.0 + (rand() % 50 + 1)), 360));
 			newPoint = Haversine(lastPoint, rndHeading, dist * 200);
-			acPatatoide.points[(i * 7) + k] = { newPoint.m_Latitude, newPoint.m_Longitude };
+			acPatatoide.points.push_back({ newPoint.m_Latitude, newPoint.m_Longitude });
 			lastPoint = newPoint;
 		}
 	}
@@ -1409,10 +1444,10 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 
 	// ----- Squawk error -------
 	string sqerror = "";
-	const char * assr = fp.GetControllerAssignedData().GetSquawk();
-	const char * ssr = rt.GetPosition().GetSquawk();
+	string assr = fp.IsValid() ? safeString(fp.GetControllerAssignedData().GetSquawk()) : string();
+	string ssr = safeString(rt.GetPosition().GetSquawk());
 	bool has_squawk_error = false;
-	if (strlen(assr) != 0 && !startsWith(ssr, assr)) {
+	if (!assr.empty() && !startsWith(ssr.c_str(), assr.c_str())) {
 		has_squawk_error = true;
 		sqerror = "A";
 		sqerror.append(assr);
@@ -1435,7 +1470,7 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 	string speed = std::to_string(rt.GetPosition().GetReportedGS());
 
 	// ----- Departure runway -------
-	string deprwy = fp.GetFlightPlanData().GetDepartureRwy();
+	string deprwy = fp.IsValid() ? safeString(fp.GetFlightPlanData().GetDepartureRwy()) : string();
 	if (deprwy.length() == 0)
 		deprwy = "RWY";
 
@@ -1445,7 +1480,7 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 		seprwy = std::to_string(rt.GetPosition().GetReportedGS());
 
 	// ----- Arrival runway -------
-	string arvrwy = fp.GetFlightPlanData().GetArrivalRwy();
+	string arvrwy = fp.IsValid() ? safeString(fp.GetFlightPlanData().GetArrivalRwy()) : string();
 	if (arvrwy.length() == 0)
 		arvrwy = "RWY";
 
@@ -1456,10 +1491,12 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 
 	// ----- Gate -------
 	string gate;
-	if (useSpeedForGates)
-		gate = std::to_string(fp.GetControllerAssignedData().GetAssignedSpeed());
-	else
-		gate = fp.GetControllerAssignedData().GetScratchPadString();
+	if (fp.IsValid()) {
+		if (useSpeedForGates)
+			gate = std::to_string(fp.GetControllerAssignedData().GetAssignedSpeed());
+		else
+			gate = safeString(fp.GetControllerAssignedData().GetScratchPadString());
+	}
 
 	replaceAll(gate, "STAND=", "");
 	gate = gate.substr(0, 4);
@@ -1525,17 +1562,19 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 	}
 
 	// ------- Origin aerodrome -------
+	// isAcCorrelated alone is not enough: IsCorrelated() returns true unconditionally
+	// when pro mode is off, including for a target that has no flight plan at all.
 	string origin = "????";
-	if (isAcCorrelated)
+	if (isAcCorrelated && fp.IsValid())
 	{
-		origin = fp.GetFlightPlanData().GetOrigin();
+		origin = safeString(fp.GetFlightPlanData().GetOrigin());
 	}
 
 	// ------- Destination aerodrome -------
 	string dest = "????";
-	if (isAcCorrelated)
+	if (isAcCorrelated && fp.IsValid())
 	{
-		dest = fp.GetFlightPlanData().GetDestination();
+		dest = safeString(fp.GetFlightPlanData().GetDestination());
 	}
 
 	// ----- GSTAT -------
@@ -1545,19 +1584,18 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 			gstat = fp.GetGroundState();
 	}
 
-	// ----- UK Controller Plugin / Assigned Stand -------
+	// ----- UK Controller Plugin / Assigned Stand, Ramp Agent Remark, Scratchpad -------
+	// Resolved together: all three come off the same assigned-data object, which only
+	// exists on a valid flight plan.
 	string uk_stand;
-	uk_stand = fp.GetControllerAssignedData().GetFlightStripAnnotation(3);
-	if (uk_stand.length() == 0)
-		uk_stand = "";
-
-	// ----- Ramp Agent Remark -------
-	string remark = fp.GetControllerAssignedData().GetFlightStripAnnotation(4);
-	if (remark.length() == 0)
-		remark = "";
-	
-	// ----- Scratchpad -------
-	string scratchpad = fp.GetControllerAssignedData().GetScratchPadString();
+	string remark;
+	string scratchpad;
+	if (fp.IsValid()) {
+		CFlightPlanControllerAssignedData assignedData = fp.GetControllerAssignedData();
+		uk_stand = safeString(assignedData.GetFlightStripAnnotation(3));
+		remark = safeString(assignedData.GetFlightStripAnnotation(4));
+		scratchpad = safeString(assignedData.GetScratchPadString());
+	}
 	if (scratchpad.length() == 0)
 		scratchpad = "...";
 
@@ -1656,7 +1694,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 	if (initCursor)
 	{
 		if (customCursor) {
-			smrCursor = CopyCursor((HCURSOR)::LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDC_SMRCURSOR), IMAGE_CURSOR, 0, 0, LR_SHARED));
+			smrCursor = loadSharedCursor(IDC_SMRCURSOR);
 			// This got broken because of threading as far as I can tell
 			// The cursor does change for some milliseconds but gets reset almost instantly by external MFC code
 
@@ -2103,8 +2141,10 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 					SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 						CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_one_color"])));
 
-					PointF lpPoints[100];
-					for (unsigned int i1 = 0; i1 < acPatatoide.History_one_points.size(); i1++)
+					PointF lpPoints[MAX_PATATOIDE_POINTS];
+					size_t count = acPatatoide.History_one_points.size();
+					if (count > MAX_PATATOIDE_POINTS) count = MAX_PATATOIDE_POINTS;
+					for (size_t i1 = 0; i1 < count; i1++)
 					{
 						CPosition pos;
 						pos.m_Latitude = acPatatoide.History_one_points[i1].x;
@@ -2112,7 +2152,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 						lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 					}
-					graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_one_points.size());
+					graphics.FillPolygon(&H_Brush, lpPoints, (INT)count);
 				}
 
 				if (i != 2) {
@@ -2120,8 +2160,10 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 						SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 							CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_two_color"])));
 
-						PointF lpPoints[100];
-						for (unsigned int i1 = 0; i1 < acPatatoide.History_two_points.size(); i1++)
+						PointF lpPoints[MAX_PATATOIDE_POINTS];
+						size_t count = acPatatoide.History_two_points.size();
+						if (count > MAX_PATATOIDE_POINTS) count = MAX_PATATOIDE_POINTS;
+						for (size_t i1 = 0; i1 < count; i1++)
 						{
 							CPosition pos;
 							pos.m_Latitude = acPatatoide.History_two_points[i1].x;
@@ -2129,7 +2171,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 							lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 						}
-						graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_two_points.size());
+						graphics.FillPolygon(&H_Brush, lpPoints, (INT)count);
 					}
 				}
 
@@ -2137,8 +2179,10 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 					SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 						CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["history_three_color"])));
 
-					PointF lpPoints[100];
-					for (unsigned int i1 = 0; i1 < acPatatoide.History_three_points.size(); i1++)
+					PointF lpPoints[MAX_PATATOIDE_POINTS];
+					size_t count = acPatatoide.History_three_points.size();
+					if (count > MAX_PATATOIDE_POINTS) count = MAX_PATATOIDE_POINTS;
+					for (size_t i1 = 0; i1 < count; i1++)
 					{
 						CPosition pos;
 						pos.m_Latitude = acPatatoide.History_three_points[i1].x;
@@ -2146,7 +2190,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 						lpPoints[i1] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 					}
-					graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.History_three_points.size());
+					graphics.FillPolygon(&H_Brush, lpPoints, (INT)count);
 				}
 			}
 
@@ -2171,8 +2215,10 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 			SolidBrush H_Brush(ColorManager->get_corrected_color("afterglow",
 				CurrentConfig->getConfigColor(CurrentConfig->getActiveProfile()["targets"]["target_color"])));
 
-			PointF lpPoints[100];
-			for (unsigned int i = 0; i < acPatatoide.points.size(); i++)
+			PointF lpPoints[MAX_PATATOIDE_POINTS];
+			size_t count = acPatatoide.points.size();
+			if (count > MAX_PATATOIDE_POINTS) count = MAX_PATATOIDE_POINTS;
+			for (size_t i = 0; i < count; i++)
 			{
 				CPosition pos;
 				pos.m_Latitude = acPatatoide.points[i].x;
@@ -2181,7 +2227,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 				lpPoints[i] = { REAL(ConvertCoordFromPositionToPixel(pos).x), REAL(ConvertCoordFromPositionToPixel(pos).y) };
 			}
 
-			graphics.FillPolygon(&H_Brush, lpPoints, acPatatoide.points.size());
+			graphics.FillPolygon(&H_Brush, lpPoints, (INT)count);
 		}
 		acPosPix = ConvertCoordFromPositionToPixel(RtPos.GetPosition());
 
@@ -2422,8 +2468,11 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 		vector<vector<string>> ReplacedLabelLines;
 
+		// A profile missing this tag type's definition must only cost us this one tag.
+		// Returning here would leave the EuroScope HDC attached to dc and held by
+		// graphics, and ~CDC would then DeleteDC() a device context we do not own.
 		if (!LabelLines.IsArray())
-			return;
+			continue;
 		for (unsigned int i = 0; i < LabelLines.Size(); i++)
 		{
 
@@ -3190,14 +3239,7 @@ void CSMRRadar::OnRefresh(HDC hDC, int Phase)
 
 // ReSharper restore CppMsExtAddressOfClassRValue
 
-//---EuroScopePlugInExitCustom-----------------------------------------------
-
-void CSMRRadar::EuroScopePlugInExitCustom()
-{
-	AFX_MANAGE_STATE(AfxGetStaticModuleState())
-
-		if (smrCursor != nullptr && smrCursor != NULL)
-		{
-			SetWindowLong(pluginWindow, GWL_WNDPROC, (LONG)gSourceProc);
-		}
-}
+// EuroScopePlugInExitCustom lived here. It is now the free function
+// RestoreEuroscopeWindowProc at the top of this file: it only ever touched the global
+// subclass state, so requiring a CSMRRadar to call it was what made the exit path
+// dereference deleted screens.

@@ -26,6 +26,13 @@ const int TAG_FUNC_DATALINK_MESSAGE = 549;
 
 
 
+// The SDK is not documented to return "" rather than null from a getter on an invalid
+// object, and GenerateTagData runs for uncorrelated targets whose CFlightPlan is invalid.
+inline static string safeString(const char * str)
+{
+	return str != nullptr ? string(str) : string();
+};
+
 inline static bool startsWith(const char *pre, const char *str)
 {
 	size_t lenpre = strlen(pre), lenstr = strlen(str);
