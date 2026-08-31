@@ -1,6 +1,79 @@
 #include "stdafx.h"
 #include "SMRPlugin.hpp"
 
+// Exactly one translation unit defines the shim (INTEGRATION.md A2): it carries file
+// static attach state, so a second definition would attach a second, separate copy.
+#define ESB_CLIENT_SHIM
+#include "esbridge.h"
+#include "SmrBridge.h"
+
+namespace {
+
+// Resolved lazily and retried, because Ramp Agent may load after us or not be installed
+// at all. ESB_FIELD_NONE simply means "no stand data available" (B2.1, B2.2).
+ESB_FieldId g_bridgeStandField = ESB_FIELD_NONE;
+ESB_FieldId g_bridgeRemarkField = ESB_FIELD_NONE;
+
+bool ReadBridgeString(ESB_FieldId field, const char* callsign, string& out)
+{
+	out.clear();
+
+	if (esb_api == nullptr || field == ESB_FIELD_NONE || callsign == nullptr || *callsign == '\0')
+		return false;
+
+	// Resolved from the callsign every read rather than cached: a reconnection makes a
+	// stored handle stale, and a stale handle reads as nothing (B2.9).
+	ESB_Aircraft ac = ESB_AIRCRAFT_NONE;
+	if (esb_api->aircraft(callsign, &ac) != ESB_OK)
+		return false;
+
+	// Comfortably larger than the provider's declared max_bytes, so ESB_E_BUFFER_TOO_SMALL
+	// cannot arise; it is handled anyway by the status check below.
+	char buf[256];
+	uint32_t bytes = sizeof buf;
+	ESB_Value value;
+
+	// Any non-OK status means no value to draw, including ESB_E_UNSET (field declared but
+	// nothing published yet) and ESB_E_NO_PROVIDER (Ramp Agent not loaded).
+	if (esb_api->get_ac(ac, field, &value, buf, &bytes) != ESB_OK)
+		return false;
+
+	if (value.type != ESB_T_STR)
+		return false;
+
+	// Length is carried explicitly and a NUL is not guaranteed, so assign by length
+	const uint32_t length = value.bytes < sizeof buf ? value.bytes : sizeof buf;
+	out.assign(buf, length);
+	return !out.empty();
+}
+
+} // namespace
+
+void SmrBridge::Attach()
+{
+	const ESB_Api_v1* api = ESB_Attach();
+	if (api == nullptr)
+		return; // Bridge not installed or not loaded yet - stay silent and carry on (A5)
+
+	// vSMR works perfectly well without stand data, so unlike Ramp Agent it deliberately
+	// never prints ESB_MISSING_MESSAGE: A7 is for plugins that cannot function at all.
+	if (g_bridgeStandField == ESB_FIELD_NONE)
+		api->resolve("rampagent/stand", ESB_T_STR, &g_bridgeStandField);
+
+	if (g_bridgeRemarkField == ESB_FIELD_NONE)
+		api->resolve("rampagent/remark", ESB_T_STR, &g_bridgeRemarkField);
+}
+
+bool SmrBridge::StandFor(const char* callsign, string& out)
+{
+	return ReadBridgeString(g_bridgeStandField, callsign, out);
+}
+
+bool SmrBridge::RemarkFor(const char* callsign, string& out)
+{
+	return ReadBridgeString(g_bridgeRemarkField, callsign, out);
+}
+
 bool Logger::ENABLED;
 string Logger::DLL_PATH;
 
@@ -609,6 +682,10 @@ void CSMRPlugin::OnTimer(int Counter)
 {
 	Logger::info(string(__FUNCSIG__));
 	BLINK = !BLINK;
+
+	// Cheap once attached, and it has to be retried: both the bridge and Ramp Agent may
+	// load after us, since EuroScope's plugin order follows the user's settings file (A4)
+	SmrBridge::Attach();
 
 	if (HoppieConnected && ConnectionMessage) {
 		DisplayUserMessage("CPDLC", "Server", "Logged in!", true, true, false, true, false);

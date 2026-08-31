@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "Resource.h"
 #include "SMRRadar.hpp"
+#include "SmrBridge.h"
 
 ULONG_PTR m_gdiplusToken;
 CPoint mouseLocation(0, 0);
@@ -1584,18 +1585,22 @@ map<string, string> CSMRRadar::GenerateTagData(CRadarTarget rt, CFlightPlan fp, 
 			gstat = fp.GetGroundState();
 	}
 
-	// ----- UK Controller Plugin / Assigned Stand, Ramp Agent Remark, Scratchpad -------
-	// Resolved together: all three come off the same assigned-data object, which only
-	// exists on a valid flight plan.
+	// ----- Assigned stand and remark, read from Ramp Agent over the plugin bridge -------
+	// Read from the publishing plugin directly rather than from flight strip annotations
+	// 3 and 4. Nothing is laundered through EuroScope's controller assigned data, nothing
+	// contends with UK Controller Plugin over index 3, and the values arrive untruncated
+	// instead of clipped to what an annotation slot holds. Both stay empty when Ramp Agent
+	// or the bridge DLL is not installed, which is a supported configuration.
 	string uk_stand;
 	string remark;
+	SmrBridge::StandFor(rt.GetCallsign(), uk_stand);
+	SmrBridge::RemarkFor(rt.GetCallsign(), remark);
+
+	// ----- Scratchpad -------
+	// EuroScope's own field, unrelated to the bridge
 	string scratchpad;
-	if (fp.IsValid()) {
-		CFlightPlanControllerAssignedData assignedData = fp.GetControllerAssignedData();
-		uk_stand = safeString(assignedData.GetFlightStripAnnotation(3));
-		remark = safeString(assignedData.GetFlightStripAnnotation(4));
-		scratchpad = safeString(assignedData.GetScratchPadString());
-	}
+	if (fp.IsValid())
+		scratchpad = safeString(fp.GetControllerAssignedData().GetScratchPadString());
 	if (scratchpad.length() == 0)
 		scratchpad = "...";
 
