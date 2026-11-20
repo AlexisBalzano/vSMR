@@ -11,6 +11,8 @@
 #include "datalink/DatalinkProtocolSupport.hpp"
 #include "datalink/PinedeProtocol.hpp"
 #include "integrations/CdmBridgeClient.hpp"
+#include "integrations/DatalinkBridgeData.hpp"
+#include "integrations/DatalinkBridgeProvider.hpp"
 #include "radar/RadarScreen.Registry.hpp"
 #include "shared/TextUtils.hpp"
 #include "weather/WeatherStore.hpp"
@@ -49,8 +51,9 @@ namespace
 	constexpr const char* kLegacyHoppieSettings[] = { "cpdlc_logon", "cpdlc_password" };
 }
 
-void CSMRPlugin::SynchronizeProxyDatalink()
+void CSMRPlugin::SynchronizeProxyDatalink(const ESB_Api_v1* bridgeApi)
 {
+	using namespace VsmrDatalinkBridge;
 	const auto previous = ProxyDatalink.flags;
 	const bool previousOnline = ProxyDatalink.connected, previousConnecting = ProxyDatalink.connecting, previousRemote = ProxyDatalink.remote;
 	if (GetConnectionType() == CONNECTION_TYPE_DIRECT) {
@@ -58,13 +61,19 @@ void CSMRPlugin::SynchronizeProxyDatalink()
 		{
 			std::lock_guard<std::mutex> guard(DatalinkStateMutex);
 			const auto add = [&](const std::vector<std::string>& list, unsigned bit) { for (const auto& call : list) flags[call] |= bit; };
-			add(AircraftDemandingClearance, 1); add(AircraftStandby, 2); add(AircraftMessage, 4);
-			add(AircraftWilco, 8); add(AircraftMessageSent, 16);
+			add(AircraftDemandingClearance, FlagDemanding); add(AircraftStandby, FlagStandby); add(AircraftMessage, FlagMessage);
+			add(AircraftWilco, FlagWilco); add(AircraftMessageSent, FlagSent);
 		}
 		std::string login;
 		{ std::lock_guard<std::mutex> guard(DatalinkControlMutex); login = logonCallsign; }
 		ProxyDatalink.Publish(DatalinkConnected.load(), DatalinkConnecting.load(), DatalinkPollInProgress.load(), login, flags);
-	} else ProxyDatalink.Poll();
+		VsmrDatalinkBridge::Publish(bridgeApi, flags);
+	} else {
+		ProxyDatalink.Poll();
+		// A proxy instance shows the primary's state; its own plug-ins read it the
+		// same way, from this process's bridge.
+		VsmrDatalinkBridge::Publish(bridgeApi, ProxyDatalink.flags);
+	}
 	if (previous != ProxyDatalink.flags || previousOnline != ProxyDatalink.connected ||
 		previousConnecting != ProxyDatalink.connecting || previousRemote != ProxyDatalink.remote)
 		RefreshControllerDependentOverlays();
